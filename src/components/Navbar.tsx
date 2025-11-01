@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { Menu, X, Sparkles, Brain } from 'lucide-react';
+import { Menu, X, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
 
@@ -26,10 +26,6 @@ export const Navbar = () => {
           <div className="hidden md:flex items-center gap-4">
             <Link to="/products" className="text-foreground hover:text-primary transition-colors px-3">
               Products
-            </Link>
-            <Link to="/model-training" className="text-foreground hover:text-primary transition-colors px-3 flex items-center gap-1">
-              <Brain className="h-4 w-4" />
-              ML Training
             </Link>
             <Link to="/#features" className="text-foreground hover:text-primary transition-colors px-3">
               Features
@@ -78,14 +74,6 @@ export const Navbar = () => {
               onClick={() => setMobileMenuOpen(false)}
             >
               Products
-            </Link>
-            <Link 
-              to="/model-training" 
-              className="block text-foreground hover:text-primary transition-colors flex items-center gap-2"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <Brain className="h-4 w-4" />
-              ML Training
             </Link>
             <Link 
               to="/#features" 
