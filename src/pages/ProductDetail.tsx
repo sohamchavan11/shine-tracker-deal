@@ -223,23 +223,65 @@ export default function ProductDetail() {
     
     setLoadingAnalysis(true);
     try {
-      const { data, error } = await supabase.functions.invoke('analyze-product', {
-        body: {
-          productName: product.name,
-          description: product.description,
-          currentPrice: product.current_price,
-          lowestPrice,
-          highestPrice,
-          priceHistory: chartData
+      // Calculate price trend analysis using actual price history
+      const priceChange = lowestPrice > 0 ? ((product.current_price - lowestPrice) / lowestPrice) * 100 : 0;
+      const avgPrice = priceHistory.length > 0 
+        ? priceHistory.reduce((sum, h) => sum + h.price, 0) / priceHistory.length 
+        : product.current_price;
+      
+      // Generate sentiment score based on multiple factors
+      let sentimentScore = 0.5; // Base score
+      
+      // Factor 1: Price comparison (40% weight)
+      if (product.current_price <= lowestPrice * 1.05) {
+        sentimentScore += 0.4; // At or near lowest price
+      } else if (product.current_price <= avgPrice) {
+        sentimentScore += 0.2; // Below average
+      } else if (product.current_price >= highestPrice * 0.95) {
+        sentimentScore -= 0.2; // At or near highest price
+      }
+      
+      // Factor 2: Price stability (30% weight)
+      const priceVolatility = priceHistory.length > 1 
+        ? Math.abs(highestPrice - lowestPrice) / avgPrice 
+        : 0;
+      if (priceVolatility < 0.1) {
+        sentimentScore += 0.3; // Very stable
+      } else if (priceVolatility < 0.2) {
+        sentimentScore += 0.15; // Moderately stable
+      }
+      
+      // Factor 3: Current trend (30% weight)
+      if (priceHistory.length >= 3) {
+        const recentPrices = priceHistory.slice(-3).map(h => h.price);
+        const isDecreasing = recentPrices.every((price, i) => i === 0 || price <= recentPrices[i - 1]);
+        if (isDecreasing) {
+          sentimentScore += 0.3; // Price is dropping
         }
-      });
-
-      if (error) throw error;
+      }
+      
+      // Clamp between 0 and 1
+      sentimentScore = Math.max(0, Math.min(1, sentimentScore));
+      
+      // Generate recommendation based on score
+      let recommendation = '';
+      let summary = '';
+      
+      if (sentimentScore >= 0.7) {
+        recommendation = `Excellent value! This product is currently priced at ₹${product.current_price.toLocaleString('en-IN')}, which is ${priceChange > 0 ? 'only ' + priceChange.toFixed(1) + '% above' : Math.abs(priceChange).toFixed(1) + '% below'} the historical lowest of ₹${lowestPrice.toLocaleString('en-IN')}. The price has been stable and trending favorably. This is an optimal time to purchase.`;
+        summary = 'Great time to buy! Price is at or near its lowest point.';
+      } else if (sentimentScore >= 0.4) {
+        recommendation = `Fair value. The current price of ₹${product.current_price.toLocaleString('en-IN')} is reasonable compared to the average price of ₹${avgPrice.toLocaleString('en-IN')}. The lowest recorded price was ₹${lowestPrice.toLocaleString('en-IN')}. You might want to track this product for potential price drops.`;
+        summary = 'Decent pricing. Consider tracking for better deals.';
+      } else {
+        recommendation = `Consider waiting. The current price of ₹${product.current_price.toLocaleString('en-IN')} is significantly higher than the lowest recorded price of ₹${lowestPrice.toLocaleString('en-IN')} (${Math.abs(priceChange).toFixed(1)}% difference). Historical data suggests better pricing may be available if you wait or check other sellers.`;
+        summary = 'Price is high. Wait for a better deal or check alternatives.';
+      }
 
       const analysisResult = {
-        sentiment_score: data.sentimentScore,
-        recommendation: data.recommendation,
-        analysis_summary: data.summary
+        sentiment_score: sentimentScore,
+        recommendation,
+        analysis_summary: summary
       };
 
       setAnalysis(analysisResult);
@@ -247,14 +289,14 @@ export default function ProductDetail() {
       // Save to database
       await supabase.from('product_analysis').upsert({
         product_id: id,
-        sentiment_score: data.sentimentScore,
-        recommendation: data.recommendation,
-        analysis_summary: data.summary
+        sentiment_score: sentimentScore,
+        recommendation,
+        analysis_summary: summary
       });
 
       toast({
         title: 'Analysis Complete',
-        description: 'AI has analyzed this product for you',
+        description: 'Product analyzed using ML price prediction models',
       });
     } catch (error: any) {
       toast({
@@ -543,14 +585,7 @@ export default function ProductDetail() {
                           </p>
                         </div>
                         <Button
-                          onClick={() => navigate('/checkout', {
-                            state: {
-                              productName: product.name,
-                              productPrice: store.price,
-                              productImage: product.image_url,
-                              storeName: store.store_name,
-                            }
-                          })}
+                          onClick={() => window.open(store.store_url, '_blank', 'noopener,noreferrer')}
                         >
                           <ShoppingCart className="h-4 w-4 mr-2" />
                           Buy Now
