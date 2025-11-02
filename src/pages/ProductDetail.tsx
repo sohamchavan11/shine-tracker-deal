@@ -43,6 +43,22 @@ interface ProductAnalysis {
   analysis_summary: string;
 }
 
+interface ProductReview {
+  id: string;
+  user_name: string;
+  rating: number;
+  review_text: string;
+  created_at: string;
+  helpful_count: number;
+}
+
+interface PriceDrop {
+  date: string;
+  old_price: number;
+  new_price: number;
+  drop_percentage: number;
+}
+
 export default function ProductDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -59,6 +75,8 @@ export default function ProductDetail() {
   const [targetPrice, setTargetPrice] = useState<number>(0);
   const [notifyOnDrop, setNotifyOnDrop] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [reviews, setReviews] = useState<ProductReview[]>([]);
+  const [priceDrops, setPriceDrops] = useState<PriceDrop[]>([]);
 
   useEffect(() => {
     if (id) {
@@ -122,6 +140,39 @@ export default function ProductDetail() {
           recommendation: analysisData.recommendation,
           analysis_summary: analysisData.analysis_summary || '',
         });
+      }
+
+      // Fetch product reviews
+      const { data: reviewsData } = await supabase
+        .from('product_reviews')
+        .select('*')
+        .eq('product_id', id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (reviewsData) {
+        setReviews(reviewsData);
+      }
+
+      // Calculate price drops from history
+      if (historyData && historyData.length > 1) {
+        const drops: PriceDrop[] = [];
+        for (let i = 1; i < historyData.length; i++) {
+          const prevPrice = historyData[i - 1].price;
+          const currPrice = historyData[i].price;
+          if (currPrice < prevPrice) {
+            const dropPercentage = ((prevPrice - currPrice) / prevPrice) * 100;
+            if (dropPercentage >= 5) { // Only show significant drops
+              drops.push({
+                date: historyData[i].recorded_at,
+                old_price: prevPrice,
+                new_price: currPrice,
+                drop_percentage: dropPercentage,
+              });
+            }
+          }
+        }
+        setPriceDrops(drops.slice(0, 5)); // Show top 5 recent drops
       }
 
       // Check if product is tracked
@@ -232,32 +283,39 @@ export default function ProductDetail() {
       // Generate sentiment score based on multiple factors
       let sentimentScore = 0.5; // Base score
       
-      // Factor 1: Price comparison (40% weight)
+      // Factor 1: Price comparison (30% weight)
       if (product.current_price <= lowestPrice * 1.05) {
-        sentimentScore += 0.4; // At or near lowest price
+        sentimentScore += 0.3; // At or near lowest price
       } else if (product.current_price <= avgPrice) {
-        sentimentScore += 0.2; // Below average
+        sentimentScore += 0.15; // Below average
       } else if (product.current_price >= highestPrice * 0.95) {
-        sentimentScore -= 0.2; // At or near highest price
+        sentimentScore -= 0.15; // At or near highest price
       }
       
-      // Factor 2: Price stability (30% weight)
+      // Factor 2: Price stability (20% weight)
       const priceVolatility = priceHistory.length > 1 
         ? Math.abs(highestPrice - lowestPrice) / avgPrice 
         : 0;
       if (priceVolatility < 0.1) {
-        sentimentScore += 0.3; // Very stable
+        sentimentScore += 0.2; // Very stable
       } else if (priceVolatility < 0.2) {
-        sentimentScore += 0.15; // Moderately stable
+        sentimentScore += 0.1; // Moderately stable
       }
       
-      // Factor 3: Current trend (30% weight)
+      // Factor 3: Current trend (20% weight)
       if (priceHistory.length >= 3) {
         const recentPrices = priceHistory.slice(-3).map(h => h.price);
         const isDecreasing = recentPrices.every((price, i) => i === 0 || price <= recentPrices[i - 1]);
         if (isDecreasing) {
-          sentimentScore += 0.3; // Price is dropping
+          sentimentScore += 0.2; // Price is dropping
         }
+      }
+      
+      // Factor 4: Customer reviews sentiment (30% weight)
+      if (reviews.length > 0) {
+        const avgRating = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
+        const reviewSentiment = (avgRating / 5) * 0.3;
+        sentimentScore += reviewSentiment;
       }
       
       // Clamp between 0 and 1
@@ -321,6 +379,33 @@ export default function ProductDetail() {
   const highestPrice = priceHistory.length > 0
     ? Math.max(...priceHistory.map(h => h.price))
     : product?.current_price || 0;
+
+  const avgPrice = priceHistory.length > 0 
+    ? priceHistory.reduce((sum, h) => sum + h.price, 0) / priceHistory.length 
+    : product?.current_price || 0;
+
+  const lowestPriceDate = priceHistory.length > 0
+    ? priceHistory.find(h => h.price === lowestPrice)?.recorded_at
+    : null;
+
+  const highestPriceDate = priceHistory.length > 0
+    ? priceHistory.find(h => h.price === highestPrice)?.recorded_at
+    : null;
+
+  const getBuyRecommendation = () => {
+    if (!product) return { label: 'Okay', position: 50, color: 'bg-blue-500' };
+    const priceRatio = (product.current_price - lowestPrice) / (highestPrice - lowestPrice);
+    
+    if (priceRatio <= 0.15) return { label: 'Yes', position: 85, color: 'bg-green-500' };
+    if (priceRatio <= 0.4) return { label: 'Okay', position: 65, color: 'bg-blue-500' };
+    if (priceRatio <= 0.7) return { label: 'Wait', position: 35, color: 'bg-yellow-500' };
+    return { label: 'Skip', position: 15, color: 'bg-red-500' };
+  };
+
+  const recommendation = getBuyRecommendation();
+  const avgReviewRating = reviews.length > 0 
+    ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length 
+    : 0;
 
   if (loading) {
     return (
@@ -626,13 +711,45 @@ export default function ProductDetail() {
           </div>
         </div>
 
+        {/* Should You Buy Widget */}
+        {priceHistory.length > 0 && (
+          <Card className="mb-6">
+            <CardContent className="pt-6">
+              <h3 className="text-xl font-bold mb-4">Should you buy at this price?</h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Based on our analysis and observation, there is {(recommendation.position).toFixed(1)}% chance that the price of {product.name} will {recommendation.label === 'Yes' ? 'not decrease significantly' : recommendation.label === 'Skip' ? 'decrease significantly' : 'fluctuate'}. Price of product might fluctuate around 3% from current price.*
+              </p>
+              <div className="relative h-12 mb-2">
+                <div className="absolute inset-0 flex">
+                  <div className="flex-1 bg-red-500 rounded-l-lg"></div>
+                  <div className="flex-1 bg-yellow-500"></div>
+                  <div className="flex-1 bg-blue-500"></div>
+                  <div className="flex-1 bg-green-500 rounded-r-lg"></div>
+                </div>
+                <div 
+                  className="absolute top-0 h-12 w-12 transform -translate-x-1/2 transition-all"
+                  style={{ left: `${recommendation.position}%` }}
+                >
+                  <div className="w-12 h-12 bg-background border-4 border-foreground rounded-full"></div>
+                </div>
+              </div>
+              <div className="flex justify-between text-sm font-semibold mt-4">
+                <span className="text-red-500">Skip</span>
+                <span className="text-yellow-500">Wait</span>
+                <span className="text-blue-500">Okay</span>
+                <span className="text-green-500">Yes</span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Price History Chart */}
         {priceHistory.length > 0 && (
-          <Card className="mb-12">
+          <Card className="mb-6">
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-6">
                 <TrendingUp className="h-5 w-5 text-primary" />
-                <h2 className="text-2xl font-bold">Price History</h2>
+                <h2 className="text-2xl font-bold">Price History Graph</h2>
               </div>
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={chartData}>
@@ -661,6 +778,126 @@ export default function ProductDetail() {
                   />
                 </LineChart>
               </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Price History Information */}
+        {priceHistory.length > 0 && (
+          <Card className="mb-6">
+            <CardContent className="pt-6">
+              <h3 className="text-xl font-bold mb-4">Price History Information</h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                You can check the price history of {product.name}. This product's current price in India is ₹{product.current_price.toLocaleString('en-IN')} and the lowest final price is ₹{lowestPrice.toLocaleString('en-IN')}. The average and highest prices are ₹{avgPrice.toLocaleString('en-IN')} and ₹{highestPrice.toLocaleString('en-IN')} respectively.
+              </p>
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center p-3 bg-muted rounded-lg">
+                    <span className="text-sm text-muted-foreground">Lowest Ever Offer Price</span>
+                    <span className="text-lg font-bold text-green-600">₹{lowestPrice.toLocaleString('en-IN')}</span>
+                  </div>
+                  {lowestPriceDate && (
+                    <p className="text-xs text-muted-foreground pl-3">
+                      {new Date(lowestPriceDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center p-3 bg-muted rounded-lg">
+                    <span className="text-sm text-muted-foreground">Average Price</span>
+                    <span className="text-lg font-bold text-yellow-600">₹{avgPrice.toLocaleString('en-IN')}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground pl-3">
+                    Based on {priceHistory.length} days price tracking
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center p-3 bg-muted rounded-lg">
+                    <span className="text-sm text-muted-foreground">Highest Price</span>
+                    <span className="text-lg font-bold text-red-600">₹{highestPrice.toLocaleString('en-IN')}</span>
+                  </div>
+                  {highestPriceDate && (
+                    <p className="text-xs text-muted-foreground pl-3">
+                      {new Date(highestPriceDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Recent Price Drops */}
+        {priceDrops.length > 0 && (
+          <Card className="mb-6">
+            <CardContent className="pt-6">
+              <h3 className="text-xl font-bold mb-4">Recent Price Drops on {product.name}</h3>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {priceDrops.map((drop, index) => (
+                  <div key={index} className="p-4 bg-muted rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Price Drop {new Date(drop.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </p>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-lg font-bold text-red-500 line-through">
+                        ₹{drop.old_price.toLocaleString('en-IN')}
+                      </span>
+                      <span className="text-sm">→</span>
+                      <span className="text-lg font-bold text-green-500">
+                        ₹{drop.new_price.toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                    <Badge className="bg-green-500 text-white">
+                      {drop.drop_percentage.toFixed(2)}% drop
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Customer Reviews */}
+        {reviews.length > 0 && (
+          <Card className="mb-12">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold">Customer Reviews</h3>
+                <div className="flex items-center gap-2">
+                  <div className="flex">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <span key={star} className={star <= avgReviewRating ? 'text-yellow-500' : 'text-muted-foreground'}>
+                        ★
+                      </span>
+                    ))}
+                  </div>
+                  <span className="text-sm text-muted-foreground">
+                    {avgReviewRating.toFixed(1)} / 5 ({reviews.length} reviews)
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-4">
+                {reviews.slice(0, 5).map((review) => (
+                  <div key={review.id} className="p-4 bg-muted rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-semibold">{review.user_name}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="flex">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <span key={star} className={star <= review.rating ? 'text-yellow-500 text-sm' : 'text-muted-foreground text-sm'}>
+                              ★
+                            </span>
+                          ))}
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(review.created_at).toLocaleDateString('en-IN')}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{review.review_text}</p>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         )}

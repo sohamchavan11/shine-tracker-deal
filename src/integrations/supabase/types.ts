@@ -78,6 +78,36 @@ export type Database = {
           },
         ]
       }
+      product_reviews: {
+        Row: {
+          created_at: string
+          helpful_count: number | null
+          id: string
+          product_id: string
+          rating: number
+          review_text: string
+          user_name: string
+        }
+        Insert: {
+          created_at?: string
+          helpful_count?: number | null
+          id?: string
+          product_id: string
+          rating: number
+          review_text: string
+          user_name: string
+        }
+        Update: {
+          created_at?: string
+          helpful_count?: number | null
+          id?: string
+          product_id?: string
+          rating?: number
+          review_text?: string
+          user_name?: string
+        }
+        Relationships: []
+      }
       product_stores: {
         Row: {
           id: string
