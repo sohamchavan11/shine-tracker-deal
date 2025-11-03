@@ -26,6 +26,7 @@ interface Product {
   store_name: string;
   updated_at: string;
   created_at: string;
+  specifications?: string;
 }
 
 interface PriceHistory {
@@ -396,18 +397,29 @@ export default function ProductDetail() {
     : null;
 
   const getBuyRecommendation = () => {
-    if (!product || !lowestPrice || !highestPrice || highestPrice === lowestPrice) {
+    if (!product || !lowestPrice || !highestPrice || priceHistory.length < 5) {
       return { label: 'Okay', position: 50, color: 'bg-blue-500' };
     }
     
-    // Calculate how close current price is to lowest price (0 = at lowest, 1 = at highest)
-    const priceRatio = (product.current_price - lowestPrice) / (highestPrice - lowestPrice);
+    const priceRange = highestPrice - lowestPrice;
+    if (priceRange < 100) {
+      return { label: 'Okay', position: 50, color: 'bg-blue-500' };
+    }
     
-    // More lenient thresholds for better recommendations
-    if (priceRatio <= 0.25) return { label: 'Yes', position: 85, color: 'bg-green-500' }; // Within 25% of range from lowest
-    if (priceRatio <= 0.5) return { label: 'Okay', position: 65, color: 'bg-blue-500' }; // Within 50% of range
-    if (priceRatio <= 0.75) return { label: 'Wait', position: 35, color: 'bg-yellow-500' }; // Within 75% of range
-    return { label: 'Skip', position: 15, color: 'bg-red-500' }; // Above 75% of range
+    const priceRatio = (product.current_price - lowestPrice) / priceRange;
+    const percentile = Math.round(priceRatio * 100);
+    
+    // Calculate position on slider (inverted: lower price = higher position)
+    const sliderPosition = 85 - (percentile * 0.7);
+    
+    if (percentile <= 20) {
+      return { label: 'Yes', position: sliderPosition, color: 'bg-green-500' };
+    } else if (percentile <= 40) {
+      return { label: 'Okay', position: sliderPosition, color: 'bg-blue-500' };
+    } else if (percentile <= 70) {
+      return { label: 'Wait', position: sliderPosition, color: 'bg-yellow-500' };
+    }
+    return { label: 'Skip', position: sliderPosition, color: 'bg-red-500' };
   };
 
   const recommendation = getBuyRecommendation();
