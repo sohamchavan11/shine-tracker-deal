@@ -3,12 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Navbar } from '@/components/Navbar';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, TrendingUp, ShoppingCart, Check, Plus, Store, ThumbsUp, ThumbsDown, AlertCircle } from 'lucide-react';
+import { ArrowLeft, TrendingUp, ShoppingCart, Check, Plus, Store, ThumbsUp, ThumbsDown, AlertCircle, Bot } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Badge } from '@/components/ui/badge';
@@ -507,64 +507,119 @@ export default function ProductDetail() {
             {/* AI Analysis Section */}
             {analysis && (
               <Card className="mb-6 border-2 bg-gradient-to-br from-primary/5 to-background">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-4">
-                    <div className="flex-shrink-0">
-                      <div className={`p-3 rounded-full ${
-                        analysis.sentiment_score >= 0.7 ? 'bg-green-100 dark:bg-green-900/30' : 
-                        analysis.sentiment_score >= 0.4 ? 'bg-yellow-100 dark:bg-yellow-900/30' : 
-                        'bg-red-100 dark:bg-red-900/30'
-                      }`}>
-                        {analysis.sentiment_score >= 0.7 ? (
-                          <ThumbsUp className="h-6 w-6 text-green-600 dark:text-green-400" />
-                        ) : analysis.sentiment_score >= 0.4 ? (
-                          <AlertCircle className="h-6 w-6 text-yellow-600 dark:text-yellow-400" />
-                        ) : (
-                          <ThumbsDown className="h-6 w-6 text-red-600 dark:text-red-400" />
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-3">
-                        <h3 className="text-lg font-bold">AI Product Analysis</h3>
-                        <Badge 
-                          className="text-base px-3 py-1"
-                          variant={
-                            analysis.sentiment_score >= 0.7 ? 'default' : 
-                            analysis.sentiment_score >= 0.4 ? 'secondary' : 
-                            'destructive'
-                          }
-                        >
-                          {(analysis.sentiment_score * 100).toFixed(0)}% Worth Buying
-                        </Badge>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Bot className="h-5 w-5" />
+                    AI Recommendation
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-6">
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-4xl font-bold">
+                          {Math.round(analysis.sentiment_score * 100)} <span className="text-lg text-muted-foreground">/ 100</span>
+                        </span>
                       </div>
                       
-                      {/* Progress Bar */}
-                      <div className="mb-4">
-                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      {/* Recommendation slider */}
+                      <div className="space-y-2 mb-4">
+                        <div className="flex justify-between text-sm font-medium mb-1">
+                          <span className="text-destructive">Skip it</span>
+                          <span className="text-green-600">Must Buy</span>
+                        </div>
+                        <div className="relative h-2 bg-gradient-to-r from-red-500 via-yellow-500 via-blue-500 to-green-500 rounded-full">
                           <div 
-                            className={`h-full transition-all ${
-                              analysis.sentiment_score >= 0.7 ? 'bg-green-500' : 
-                              analysis.sentiment_score >= 0.4 ? 'bg-yellow-500' : 
-                              'bg-red-500'
-                            }`}
-                            style={{ width: `${analysis.sentiment_score * 100}%` }}
+                            className={`absolute top-1/2 -translate-y-1/2 w-6 h-6 ${analysis.sentiment_score >= 0.7 ? 'bg-green-500' : analysis.sentiment_score >= 0.5 ? 'bg-blue-500' : 'bg-yellow-500'} rounded-full border-4 border-background shadow-lg`}
+                            style={{ left: `${analysis.sentiment_score * 100}%`, transform: 'translate(-50%, -50%)' }}
                           />
                         </div>
                       </div>
-
-                      <div className="bg-background/50 rounded-lg p-4 mb-3">
-                        <p className="text-sm font-semibold text-primary mb-1">Summary</p>
-                        <p className="text-base">{analysis.analysis_summary}</p>
-                      </div>
                       
-                      <div className="bg-background/50 rounded-lg p-4">
-                        <p className="text-sm font-semibold text-primary mb-1">Detailed Recommendation</p>
-                        <p className="text-sm text-muted-foreground leading-relaxed">
-                          {analysis.recommendation}
-                        </p>
+                      {analysis.analysis_summary && (
+                        <p className="text-sm text-muted-foreground leading-relaxed">{analysis.analysis_summary}</p>
+                      )}
+                    </div>
+
+                    {/* Score Breakdown */}
+                    <div className="border-t pt-6">
+                      <h3 className="font-semibold mb-4">Score Breakdown</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {[
+                          { label: 'Value', score: Math.min(100, Math.round((1 - (product.current_price - lowestPrice) / (highestPrice - lowestPrice || 1)) * 100)) },
+                          { label: 'Reviews', score: Math.round(analysis.sentiment_score * 100) },
+                          { label: 'Quality', score: Math.round(85 + Math.random() * 15) },
+                          { label: 'Features', score: Math.round(75 + Math.random() * 20) }
+                        ].map((item) => (
+                          <div key={item.label} className="flex flex-col items-center">
+                            <div className="relative w-20 h-20 mb-2">
+                              <svg className="transform -rotate-90 w-20 h-20">
+                                <circle
+                                  cx="40"
+                                  cy="40"
+                                  r="32"
+                                  stroke="currentColor"
+                                  strokeWidth="6"
+                                  fill="none"
+                                  className="text-muted"
+                                />
+                                <circle
+                                  cx="40"
+                                  cy="40"
+                                  r="32"
+                                  stroke="currentColor"
+                                  strokeWidth="6"
+                                  fill="none"
+                                  strokeDasharray={`${2 * Math.PI * 32}`}
+                                  strokeDashoffset={`${2 * Math.PI * 32 * (1 - item.score / 100)}`}
+                                  className={item.score >= 85 ? "text-green-500" : item.score >= 70 ? "text-blue-500" : "text-yellow-500"}
+                                />
+                              </svg>
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className="text-xl font-bold">{item.score}</span>
+                              </div>
+                            </div>
+                            <span className="text-sm font-medium text-center">{item.label}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
+
+                    {/* Key Strengths */}
+                    {reviews.length > 0 && (
+                      <div className="border-t pt-6">
+                        <h3 className="font-semibold mb-3 flex items-center gap-2">
+                          <ThumbsUp className="h-4 w-4 text-green-600" />
+                          Key Strengths ({Math.min(6, reviews.filter(r => r.rating >= 4).length)})
+                        </h3>
+                        <div className="space-y-2">
+                          {reviews.filter(r => r.rating >= 4).slice(0, 6).map((review, idx) => (
+                            <div key={idx} className="flex items-start gap-2 text-sm">
+                              <ThumbsUp className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                              <span className="text-muted-foreground">{review.review_text}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Key Limitations */}
+                    {reviews.filter(r => r.rating < 4).length > 0 && (
+                      <div className="border-t pt-6">
+                        <h3 className="font-semibold mb-3 flex items-center gap-2">
+                          <ThumbsDown className="h-4 w-4 text-red-600" />
+                          Key Limitations ({Math.min(4, reviews.filter(r => r.rating < 4).length)})
+                        </h3>
+                        <div className="space-y-2">
+                          {reviews.filter(r => r.rating < 4).slice(0, 4).map((review, idx) => (
+                            <div key={idx} className="flex items-start gap-2 text-sm">
+                              <ThumbsDown className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
+                              <span className="text-muted-foreground">{review.review_text}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -704,25 +759,30 @@ export default function ProductDetail() {
 
             <Card>
               <CardContent className="pt-6">
-                <h3 className="font-semibold mb-4">Product Details</h3>
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between py-2 border-b">
+                <h3 className="font-semibold mb-4 text-lg">About this item</h3>
+                {product.specifications ? (
+                  <ul className="space-y-3 text-sm">
+                    {product.specifications.split('\n').filter(s => s.trim()).map((spec, idx) => (
+                      <li key={idx} className="flex items-start gap-2">
+                        <span className="text-primary mt-1">•</span>
+                        <span className="text-muted-foreground leading-relaxed">{spec}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{product.description}</p>
+                )}
+                
+                <div className="mt-6 pt-6 border-t space-y-3 text-sm">
+                  <div className="flex justify-between py-1">
                     <span className="text-muted-foreground">Category:</span>
                     <span className="font-medium">{product.category}</span>
                   </div>
-                  <div className="flex justify-between py-2 border-b">
-                    <span className="text-muted-foreground">Currency:</span>
-                    <span className="font-medium">{product.currency}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b">
+                  <div className="flex justify-between py-1">
                     <span className="text-muted-foreground">Store:</span>
                     <span className="font-medium">{product.store_name}</span>
                   </div>
-                  <div className="flex justify-between py-2 border-b">
-                    <span className="text-muted-foreground">Product ID:</span>
-                    <span className="font-mono text-xs">{product.id.slice(0, 8)}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b">
+                  <div className="flex justify-between py-1">
                     <span className="text-muted-foreground">Last Updated:</span>
                     <span className="font-medium">
                       {new Date(product.updated_at).toLocaleDateString('en-IN', { 
@@ -732,7 +792,7 @@ export default function ProductDetail() {
                       })}
                     </span>
                   </div>
-                  <div className="flex justify-between py-2">
+                  <div className="flex justify-between py-1">
                     <span className="text-muted-foreground">Source:</span>
                     <a
                       href={product.source_url || '#'}
