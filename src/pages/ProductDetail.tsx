@@ -23,6 +23,9 @@ interface Product {
   image_url: string;
   source_url: string;
   currency: string;
+  store_name: string;
+  updated_at: string;
+  created_at: string;
 }
 
 interface PriceHistory {
@@ -393,13 +396,18 @@ export default function ProductDetail() {
     : null;
 
   const getBuyRecommendation = () => {
-    if (!product) return { label: 'Okay', position: 50, color: 'bg-blue-500' };
+    if (!product || !lowestPrice || !highestPrice || highestPrice === lowestPrice) {
+      return { label: 'Okay', position: 50, color: 'bg-blue-500' };
+    }
+    
+    // Calculate how close current price is to lowest price (0 = at lowest, 1 = at highest)
     const priceRatio = (product.current_price - lowestPrice) / (highestPrice - lowestPrice);
     
-    if (priceRatio <= 0.15) return { label: 'Yes', position: 85, color: 'bg-green-500' };
-    if (priceRatio <= 0.4) return { label: 'Okay', position: 65, color: 'bg-blue-500' };
-    if (priceRatio <= 0.7) return { label: 'Wait', position: 35, color: 'bg-yellow-500' };
-    return { label: 'Skip', position: 15, color: 'bg-red-500' };
+    // More lenient thresholds for better recommendations
+    if (priceRatio <= 0.25) return { label: 'Yes', position: 85, color: 'bg-green-500' }; // Within 25% of range from lowest
+    if (priceRatio <= 0.5) return { label: 'Okay', position: 65, color: 'bg-blue-500' }; // Within 50% of range
+    if (priceRatio <= 0.75) return { label: 'Wait', position: 35, color: 'bg-yellow-500' }; // Within 75% of range
+    return { label: 'Skip', position: 15, color: 'bg-red-500' }; // Above 75% of range
   };
 
   const recommendation = getBuyRecommendation();
@@ -684,20 +692,38 @@ export default function ProductDetail() {
 
             <Card>
               <CardContent className="pt-6">
-                <h3 className="font-semibold mb-2">Product Details</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
+                <h3 className="font-semibold mb-4">Product Details</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between py-2 border-b">
                     <span className="text-muted-foreground">Category:</span>
                     <span className="font-medium">{product.category}</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between py-2 border-b">
                     <span className="text-muted-foreground">Currency:</span>
                     <span className="font-medium">{product.currency}</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Store:</span>
+                    <span className="font-medium">{product.store_name}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Product ID:</span>
+                    <span className="font-mono text-xs">{product.id.slice(0, 8)}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Last Updated:</span>
+                    <span className="font-medium">
+                      {new Date(product.updated_at).toLocaleDateString('en-IN', { 
+                        day: 'numeric', 
+                        month: 'short', 
+                        year: 'numeric' 
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-2">
                     <span className="text-muted-foreground">Source:</span>
                     <a
-                      href={product.source_url}
+                      href={product.source_url || '#'}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-primary hover:underline"
