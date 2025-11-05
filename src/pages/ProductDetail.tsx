@@ -508,29 +508,27 @@ export default function ProductDetail() {
             {analysis && (
               <Card className="mb-6 border-2 bg-gradient-to-br from-primary/5 to-background">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Bot className="h-5 w-5" />
-                    AI Recommendation
-                  </CardTitle>
+                  <CardTitle>Sentiment Analysis</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-6">
+                  <div className="space-y-4">
                     <div>
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-4xl font-bold">
-                          {Math.round(analysis.sentiment_score * 100)} <span className="text-lg text-muted-foreground">/ 100</span>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium">Sentiment Score</span>
+                        <span className="text-2xl font-bold">
+                          {Math.round(analysis.sentiment_score * 100)} <span className="text-sm text-muted-foreground">/ 100</span>
                         </span>
                       </div>
                       
                       {/* Recommendation slider */}
                       <div className="space-y-2 mb-4">
-                        <div className="flex justify-between text-sm font-medium mb-1">
+                        <div className="flex justify-between text-xs font-medium mb-1">
                           <span className="text-destructive">Skip it</span>
                           <span className="text-green-600">Must Buy</span>
                         </div>
                         <div className="relative h-2 bg-gradient-to-r from-red-500 via-yellow-500 via-blue-500 to-green-500 rounded-full">
                           <div 
-                            className={`absolute top-1/2 -translate-y-1/2 w-6 h-6 ${analysis.sentiment_score >= 0.7 ? 'bg-green-500' : analysis.sentiment_score >= 0.5 ? 'bg-blue-500' : 'bg-yellow-500'} rounded-full border-4 border-background shadow-lg`}
+                            className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 ${analysis.sentiment_score >= 0.7 ? 'bg-green-500' : analysis.sentiment_score >= 0.5 ? 'bg-blue-500' : 'bg-yellow-500'} rounded-full border-2 border-background shadow-lg`}
                             style={{ left: `${analysis.sentiment_score * 100}%`, transform: 'translate(-50%, -50%)' }}
                           />
                         </div>
@@ -540,86 +538,6 @@ export default function ProductDetail() {
                         <p className="text-sm text-muted-foreground leading-relaxed">{analysis.analysis_summary}</p>
                       )}
                     </div>
-
-                    {/* Score Breakdown */}
-                    <div className="border-t pt-6">
-                      <h3 className="font-semibold mb-4">Score Breakdown</h3>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {[
-                          { label: 'Value', score: Math.min(100, Math.round((1 - (product.current_price - lowestPrice) / (highestPrice - lowestPrice || 1)) * 100)) },
-                          { label: 'Reviews', score: Math.round(analysis.sentiment_score * 100) },
-                          { label: 'Quality', score: Math.round(85 + Math.random() * 15) },
-                          { label: 'Features', score: Math.round(75 + Math.random() * 20) }
-                        ].map((item) => (
-                          <div key={item.label} className="flex flex-col items-center">
-                            <div className="relative w-20 h-20 mb-2">
-                              <svg className="transform -rotate-90 w-20 h-20">
-                                <circle
-                                  cx="40"
-                                  cy="40"
-                                  r="32"
-                                  stroke="currentColor"
-                                  strokeWidth="6"
-                                  fill="none"
-                                  className="text-muted"
-                                />
-                                <circle
-                                  cx="40"
-                                  cy="40"
-                                  r="32"
-                                  stroke="currentColor"
-                                  strokeWidth="6"
-                                  fill="none"
-                                  strokeDasharray={`${2 * Math.PI * 32}`}
-                                  strokeDashoffset={`${2 * Math.PI * 32 * (1 - item.score / 100)}`}
-                                  className={item.score >= 85 ? "text-green-500" : item.score >= 70 ? "text-blue-500" : "text-yellow-500"}
-                                />
-                              </svg>
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <span className="text-xl font-bold">{item.score}</span>
-                              </div>
-                            </div>
-                            <span className="text-sm font-medium text-center">{item.label}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Key Strengths */}
-                    {reviews.length > 0 && (
-                      <div className="border-t pt-6">
-                        <h3 className="font-semibold mb-3 flex items-center gap-2">
-                          <ThumbsUp className="h-4 w-4 text-green-600" />
-                          Key Strengths ({Math.min(6, reviews.filter(r => r.rating >= 4).length)})
-                        </h3>
-                        <div className="space-y-2">
-                          {reviews.filter(r => r.rating >= 4).slice(0, 6).map((review, idx) => (
-                            <div key={idx} className="flex items-start gap-2 text-sm">
-                              <ThumbsUp className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                              <span className="text-muted-foreground">{review.review_text}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Key Limitations */}
-                    {reviews.filter(r => r.rating < 4).length > 0 && (
-                      <div className="border-t pt-6">
-                        <h3 className="font-semibold mb-3 flex items-center gap-2">
-                          <ThumbsDown className="h-4 w-4 text-red-600" />
-                          Key Limitations ({Math.min(4, reviews.filter(r => r.rating < 4).length)})
-                        </h3>
-                        <div className="space-y-2">
-                          {reviews.filter(r => r.rating < 4).slice(0, 4).map((review, idx) => (
-                            <div key={idx} className="flex items-start gap-2 text-sm">
-                              <ThumbsDown className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
-                              <span className="text-muted-foreground">{review.review_text}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </CardContent>
               </Card>
