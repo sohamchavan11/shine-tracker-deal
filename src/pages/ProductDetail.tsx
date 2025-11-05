@@ -281,6 +281,33 @@ export default function ProductDetail() {
     }
   };
 
+  // Normalize and open external store URLs safely
+  const normalizeStoreUrl = (url: string): string => {
+    if (!url) return '';
+    let trimmed = url.trim();
+    trimmed = trimmed.replace(/\s+/g, '');
+    if (/^https?:\/\//i.test(trimmed)) return encodeURI(trimmed);
+    if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(trimmed)) return encodeURI(`https://${trimmed}`);
+    try {
+      return new URL(trimmed).toString();
+    } catch {
+      try { return new URL(`https://${trimmed}`).toString(); } catch { return ''; }
+    }
+  };
+
+  const handleBuyFromStore = (rawUrl: string, storeName: string) => {
+    const url = normalizeStoreUrl(rawUrl);
+    if (!url) {
+      toast({
+        variant: 'destructive',
+        title: 'Link unavailable',
+        description: `The ${storeName} link is missing or invalid.`,
+      });
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const analyzeProduct = async () => {
     if (!product || loadingAnalysis) return;
     
@@ -728,7 +755,8 @@ export default function ProductDetail() {
                           </p>
                         </div>
                         <Button
-                          onClick={() => window.open(store.store_url, '_blank', 'noopener,noreferrer')}
+                          onClick={() => handleBuyFromStore(store.store_url, store.store_name)}
+                          aria-label={`Buy on ${store.store_name}`}
                         >
                           <ShoppingCart className="h-4 w-4 mr-2" />
                           Buy Now
