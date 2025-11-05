@@ -41,6 +41,12 @@ interface ProductStore {
   store_url: string;
 }
 
+interface AIAnalysis {
+  worthBuyingScore: number;
+  summary: string;
+  detailedRecommendation: string;
+}
+
 interface ProductAnalysis {
   sentiment_score: number;
   recommendation: string;
@@ -73,9 +79,11 @@ export default function ProductDetail() {
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
   const [productStores, setProductStores] = useState<ProductStore[]>([]);
   const [analysis, setAnalysis] = useState<ProductAnalysis | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
   const [isTracked, setIsTracked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
+  const [loadingAIAnalysis, setLoadingAIAnalysis] = useState(false);
   const [targetPrice, setTargetPrice] = useState<number>(0);
   const [notifyOnDrop, setNotifyOnDrop] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -371,6 +379,55 @@ export default function ProductDetail() {
     }
   };
 
+  const analyzeProductWithAI = async () => {
+    if (!product || !priceHistory.length || loadingAIAnalysis) return;
+    
+    setLoadingAIAnalysis(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze-product-ai', {
+        body: {
+          product,
+          priceHistory,
+          reviews
+        }
+      });
+
+      if (error) {
+        if (error.message?.includes('Rate limit')) {
+          toast({
+            variant: 'destructive',
+            title: 'Rate Limit Exceeded',
+            description: 'Too many requests. Please try again later.',
+          });
+          return;
+        }
+        if (error.message?.includes('credits')) {
+          toast({
+            variant: 'destructive',
+            title: 'AI Credits Exhausted',
+            description: 'Please add credits to your workspace to continue using AI analysis.',
+          });
+          return;
+        }
+        throw error;
+      }
+
+      setAiAnalysis(data);
+      toast({
+        title: 'AI Analysis Complete',
+        description: 'Product analyzed using advanced AI models',
+      });
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'AI Analysis Failed',
+        description: error.message || 'Failed to generate AI analysis',
+      });
+    } finally {
+      setLoadingAIAnalysis(false);
+    }
+  };
+
   const chartData = priceHistory.map((item) => ({
     date: new Date(item.recorded_at).toLocaleDateString('en-IN'),
     price: item.price,
@@ -504,61 +561,69 @@ export default function ProductDetail() {
               )}
             </div>
 
-            {/* AI Analysis Section */}
-            {analysis && (
-              <Card className="mb-6 border-2 bg-gradient-to-br from-primary/5 to-background">
-                <CardHeader>
-                  <CardTitle>Sentiment Analysis</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium">Sentiment Score</span>
-                        <span className="text-2xl font-bold">
-                          {Math.round(analysis.sentiment_score * 100)} <span className="text-sm text-muted-foreground">/ 100</span>
-                        </span>
-                      </div>
-                      
-                      {/* Recommendation slider */}
-                      <div className="space-y-2 mb-4">
-                        <div className="flex justify-between text-xs font-medium mb-1">
-                          <span className="text-destructive">Skip it</span>
-                          <span className="text-green-600">Must Buy</span>
-                        </div>
-                        <div className="relative h-2 bg-gradient-to-r from-red-500 via-yellow-500 via-blue-500 to-green-500 rounded-full">
-                          <div 
-                            className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 ${analysis.sentiment_score >= 0.7 ? 'bg-green-500' : analysis.sentiment_score >= 0.5 ? 'bg-blue-500' : 'bg-yellow-500'} rounded-full border-2 border-background shadow-lg`}
-                            style={{ left: `${analysis.sentiment_score * 100}%`, transform: 'translate(-50%, -50%)' }}
-                          />
-                        </div>
-                      </div>
-                      
-                      {analysis.analysis_summary && (
-                        <p className="text-sm text-muted-foreground leading-relaxed">{analysis.analysis_summary}</p>
-                      )}
+            {/* AI Product Analysis Section */}
+            {aiAnalysis && (
+              <Card className="mb-6 border-2 bg-gradient-to-br from-green-50 to-white dark:from-green-950/20 dark:to-background">
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-full">
+                      <ThumbsUp className="h-6 w-6 text-green-600 dark:text-green-400" />
                     </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xl font-bold">AI Product Analysis</h3>
+                        <Badge className="bg-primary text-white text-base px-4 py-1">
+                          {aiAnalysis.worthBuyingScore}% Worth Buying
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="mb-6">
+                    <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-green-500 to-green-600 transition-all duration-1000"
+                        style={{ width: `${aiAnalysis.worthBuyingScore}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Summary Section */}
+                  <div className="mb-6">
+                    <h4 className="text-primary font-semibold text-lg mb-2">Summary</h4>
+                    <p className="text-foreground leading-relaxed">
+                      {aiAnalysis.summary}
+                    </p>
+                  </div>
+
+                  {/* Detailed Recommendation */}
+                  <div>
+                    <h4 className="text-primary font-semibold text-lg mb-2">Detailed Recommendation</h4>
+                    <p className="text-muted-foreground leading-relaxed">
+                      {aiAnalysis.detailedRecommendation}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
             )}
 
-            {!analysis && (
+            {!aiAnalysis && (
               <Button 
-                onClick={analyzeProduct} 
-                disabled={loadingAnalysis}
+                onClick={analyzeProductWithAI} 
+                disabled={loadingAIAnalysis || priceHistory.length === 0}
                 size="lg"
-                className="w-full mb-6 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
+                className="w-full mb-6 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white"
               >
-                {loadingAnalysis ? (
+                {loadingAIAnalysis ? (
                   <>
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                    Analyzing with AI...
+                    Generating AI Analysis...
                   </>
                 ) : (
                   <>
-                    <AlertCircle className="h-5 w-5 mr-2" />
-                    Get AI Analysis & Buying Recommendation
+                    <Bot className="h-5 w-5 mr-2" />
+                    Get AI Product Analysis
                   </>
                 )}
               </Button>
