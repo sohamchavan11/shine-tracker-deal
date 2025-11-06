@@ -296,50 +296,47 @@ export default function ProductDetail() {
   // Normalize and open external store URLs safely
   const normalizeStoreUrl = (url: string): string => {
     if (!url) return '';
-    let trimmed = url.trim();
+    let s = url.trim();
 
     // Strip wrapping quotes/parentheses
-    trimmed = trimmed.replace(/^['"(]+|['")] +$/g, '');
-
-    // Fix common protocol typos (https//, http//, http:/)
-    trimmed = trimmed
-      .replace(/^https(?=\/\/)/i, 'https:')
-      .replace(/^http(?=\/\/)/i, 'http:')
-      .replace(/^https:\/(?!\/)/i, 'https://')
-      .replace(/^http:\/(?!\/)/i, 'http://');
+    s = s.replace(/^['"(]+|['")]$/g, '');
 
     // Remove spaces
-    trimmed = trimmed.replace(/\s+/g, '');
+    s = s.replace(/\s+/g, '');
 
     // Add protocol for bare domains
-    if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(trimmed)) trimmed = `https://${trimmed}`;
+    if (!/^https?:\/\//i.test(s)) {
+      if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(s)) s = `https://${s}`;
+      else return '';
+    }
 
     try {
-      const u = new URL(trimmed);
+      const u = new URL(s);
       const proto = u.protocol.replace(':', '');
       if (!/^https?$/.test(proto)) return '';
-      return encodeURI(u.toString());
+
+      // Force canonical hosts for known stores
+      const host = u.hostname.toLowerCase();
+      if (host === 'amazon.in') u.hostname = 'www.amazon.in';
+      if (host === 'flipkart.com') u.hostname = 'www.flipkart.com';
+      if (host === 'tatacliq.com') u.hostname = 'www.tatacliq.com';
+
+      return u.toString();
     } catch {
-      try {
-        const u = new URL(`https://${trimmed}`);
-        return encodeURI(u.toString());
-      } catch {
-        return '';
-      }
+      return '';
     }
   };
 
-  const handleBuyFromStore = (rawUrl: string, storeName: string) => {
-    const url = normalizeStoreUrl(rawUrl);
-    if (!url) {
-      toast({
-        variant: 'destructive',
-        title: 'Link unavailable',
-        description: `The ${storeName} link is missing or invalid.`,
-      });
-      return;
-    }
-    window.open(url, '_blank', 'noopener,noreferrer');
+  // Build final link with graceful fallback to store search when direct link is invalid
+  const buildStoreLink = (store: ProductStore): { href: string; isFallback: boolean } => {
+    const normalized = normalizeStoreUrl(store.store_url);
+    if (normalized) return { href: normalized, isFallback: false };
+    const q = encodeURIComponent(product?.name || '');
+    const name = store.store_name.toLowerCase();
+    if (name.includes('amazon')) return { href: `https://www.amazon.in/s?k=${q}`, isFallback: true };
+    if (name.includes('flipkart')) return { href: `https://www.flipkart.com/search?q=${q}`, isFallback: true };
+    if (name.includes('tata')) return { href: `https://www.tatacliq.com/search/?searchCategory=all&text=${q}`, isFallback: true };
+    return { href: `https://www.google.com/search?q=${q}`, isFallback: true };
   };
 
   const analyzeProduct = async () => {
@@ -878,37 +875,37 @@ export default function ProductDetail() {
                     Compare Prices Across Stores
                   </h3>
                   <div className="space-y-3">
-                    {productStores.map((store) => (
-                      <div key={store.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                        <div>
-                          <p className="font-medium">{store.store_name}</p>
-                          <p className="text-2xl font-bold text-primary">
-                            ₹{store.price.toLocaleString('en-IN')}
-                          </p>
+                    {productStores.map((store) => {
+                      const link = buildStoreLink(store);
+                      return (
+                        <div key={store.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                          <div>
+                            <p className="font-medium">{store.store_name}</p>
+                            <p className="text-2xl font-bold text-primary">
+                              ₹{store.price.toLocaleString('en-IN')}
+                            </p>
+                          </div>
+                          <Button asChild aria-label={`Buy on ${store.store_name}`}>
+                            <a
+                              href={link.href}
+                              target="_blank"
+                              rel="noopener noreferrer nofollow sponsored"
+                              onClick={(e) => {
+                                if (link.isFallback) {
+                                  toast({
+                                    title: `Opened ${store.store_name} search`,
+                                    description: `Direct link unavailable. Showing results for “${product.name}”.`,
+                                  });
+                                }
+                              }}
+                            >
+                              <ShoppingCart className="h-4 w-4 mr-2" />
+                              Buy Now
+                            </a>
+                          </Button>
                         </div>
-                        <Button asChild aria-label={`Buy on ${store.store_name}`}>
-                          <a
-                            href={normalizeStoreUrl(store.store_url) || '#'}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => {
-                              const href = normalizeStoreUrl(store.store_url);
-                              if (!href) {
-                                e.preventDefault();
-                                toast({
-                                  variant: 'destructive',
-                                  title: 'Link unavailable',
-                                  description: `The ${store.store_name} link is missing or invalid.`,
-                                });
-                              }
-                            }}
-                          >
-                            <ShoppingCart className="h-4 w-4 mr-2" />
-                            Buy Now
-                          </a>
-                        </Button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
