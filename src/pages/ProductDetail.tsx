@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { useSentimentAnalyzer } from '@/hooks/useSentimentAnalyzer';
 import { ArrowLeft, TrendingUp, ShoppingCart, Check, Plus, Store, ThumbsUp, ThumbsDown, AlertCircle, Bot } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -89,6 +90,17 @@ export default function ProductDetail() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [priceDrops, setPriceDrops] = useState<PriceDrop[]>([]);
+  
+  // Local sentiment analysis (browser model)
+  const { analyzeBatch, isLoading: isSentimentLoading } = useSentimentAnalyzer();
+  const [sentimentSummary, setSentimentSummary] = useState({
+    positive: 0,
+    negative: 0,
+    neutral: 0,
+    avgScore: 0,
+    overall: 'Neutral' as 'Positive' | 'Neutral' | 'Negative',
+    examples: { pos: [] as string[], neg: [] as string[] },
+  });
 
   useEffect(() => {
     if (id) {
@@ -285,13 +297,35 @@ export default function ProductDetail() {
   const normalizeStoreUrl = (url: string): string => {
     if (!url) return '';
     let trimmed = url.trim();
+
+    // Strip wrapping quotes/parentheses
+    trimmed = trimmed.replace(/^['"(]+|['")] +$/g, '');
+
+    // Fix common protocol typos (https//, http//, http:/)
+    trimmed = trimmed
+      .replace(/^https(?=\/\/)/i, 'https:')
+      .replace(/^http(?=\/\/)/i, 'http:')
+      .replace(/^https:\/(?!\/)/i, 'https://')
+      .replace(/^http:\/(?!\/)/i, 'http://');
+
+    // Remove spaces
     trimmed = trimmed.replace(/\s+/g, '');
-    if (/^https?:\/\//i.test(trimmed)) return encodeURI(trimmed);
-    if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(trimmed)) return encodeURI(`https://${trimmed}`);
+
+    // Add protocol for bare domains
+    if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(trimmed)) trimmed = `https://${trimmed}`;
+
     try {
-      return new URL(trimmed).toString();
+      const u = new URL(trimmed);
+      const proto = u.protocol.replace(':', '');
+      if (!/^https?$/.test(proto)) return '';
+      return encodeURI(u.toString());
     } catch {
-      try { return new URL(`https://${trimmed}`).toString(); } catch { return ''; }
+      try {
+        const u = new URL(`https://${trimmed}`);
+        return encodeURI(u.toString());
+      } catch {
+        return '';
+      }
     }
   };
 
@@ -511,6 +545,32 @@ export default function ProductDetail() {
     ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length 
     : 0;
 
+  // Derive sentiment from recent reviews using on-device model
+  useEffect(() => {
+    const run = async () => {
+      const texts = reviews.map(r => r.review_text).filter(Boolean).slice(0, 20);
+      if (texts.length === 0) return;
+      try {
+        const results = await analyzeBatch(texts);
+        let pos = 0, neg = 0, neu = 0, sum = 0;
+        const posEx: string[] = [];
+        const negEx: string[] = [];
+        results.forEach((r, idx) => {
+          const lbl = r.label.toLowerCase();
+          if (lbl.includes('pos')) { pos++; sum += r.score; if (posEx.length < 2) posEx.push(texts[idx]); }
+          else if (lbl.includes('neg')) { neg++; sum -= r.score; if (negEx.length < 2) negEx.push(texts[idx]); }
+          else { neu++; }
+        });
+        const avgScore = texts.length ? (sum / texts.length + 1) / 2 : 0.5; // normalize to 0..1
+        const overall = avgScore > 0.6 ? 'Positive' : avgScore < 0.4 ? 'Negative' : 'Neutral';
+        setSentimentSummary({ positive: pos, negative: neg, neutral: neu, avgScore, overall, examples: { pos: posEx, neg: negEx } });
+      } catch (e) {
+        console.error('Sentiment analysis error:', e);
+      }
+    };
+    run();
+  }, [reviews, analyzeBatch]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -587,6 +647,78 @@ export default function ProductDetail() {
                 </div>
               )}
             </div>
+
+            {/* Customer Sentiment Analysis (On-device model) */}
+            <Card className="mb-6">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-full bg-muted">
+                      {sentimentSummary.overall === 'Positive' ? (
+                        <ThumbsUp className="h-5 w-5 text-green-600" />
+                      ) : sentimentSummary.overall === 'Negative' ? (
+                        <ThumbsDown className="h-5 w-5 text-red-600" />
+                      ) : (
+                        <AlertCircle className="h-5 w-5 text-yellow-600" />)
+                      }
+                    </div>
+                    <h3 className="text-xl font-bold">Customer Sentiment</h3>
+                  </div>
+                  <Badge className="px-3 py-1">
+                    {Math.round(sentimentSummary.avgScore * 100)}% Positive
+                  </Badge>
+                </div>
+
+                {isSentimentLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
+                    Analyzing reviews...
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-3 gap-3 mb-4 text-sm">
+                      <div className="p-3 bg-muted rounded-md">
+                        <div className="font-semibold">Positive</div>
+                        <div className="text-green-600 font-bold">{sentimentSummary.positive}</div>
+                      </div>
+                      <div className="p-3 bg-muted rounded-md">
+                        <div className="font-semibold">Neutral</div>
+                        <div className="text-blue-600 font-bold">{sentimentSummary.neutral}</div>
+                      </div>
+                      <div className="p-3 bg-muted rounded-md">
+                        <div className="font-semibold">Negative</div>
+                        <div className="text-red-600 font-bold">{sentimentSummary.negative}</div>
+                      </div>
+                    </div>
+
+                    {(sentimentSummary.examples.pos.length > 0 || sentimentSummary.examples.neg.length > 0) && (
+                      <div className="space-y-3">
+                        {sentimentSummary.examples.pos.length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-semibold text-green-600 mb-1">What people liked</h4>
+                            <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
+                              {sentimentSummary.examples.pos.map((t, i) => (
+                                <li key={i}>&quot;{t}&quot;</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {sentimentSummary.examples.neg.length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-semibold text-red-600 mb-1">What needs improvement</h4>
+                            <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
+                              {sentimentSummary.examples.neg.map((t, i) => (
+                                <li key={i}>&quot;{t}&quot;</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
 
             {/* AI Product Analysis Section */}
             {aiAnalysis && (
@@ -754,12 +886,26 @@ export default function ProductDetail() {
                             ₹{store.price.toLocaleString('en-IN')}
                           </p>
                         </div>
-                        <Button
-                          onClick={() => handleBuyFromStore(store.store_url, store.store_name)}
-                          aria-label={`Buy on ${store.store_name}`}
-                        >
-                          <ShoppingCart className="h-4 w-4 mr-2" />
-                          Buy Now
+                        <Button asChild aria-label={`Buy on ${store.store_name}`}>
+                          <a
+                            href={normalizeStoreUrl(store.store_url) || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => {
+                              const href = normalizeStoreUrl(store.store_url);
+                              if (!href) {
+                                e.preventDefault();
+                                toast({
+                                  variant: 'destructive',
+                                  title: 'Link unavailable',
+                                  description: `The ${store.store_name} link is missing or invalid.`,
+                                });
+                              }
+                            }}
+                          >
+                            <ShoppingCart className="h-4 w-4 mr-2" />
+                            Buy Now
+                          </a>
                         </Button>
                       </div>
                     ))}
