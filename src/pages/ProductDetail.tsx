@@ -330,13 +330,33 @@ export default function ProductDetail() {
   // Build final link with graceful fallback to store search when direct link is invalid
   const buildStoreLink = (store: ProductStore): { href: string; isFallback: boolean } => {
     const normalized = normalizeStoreUrl(store.store_url);
-    if (normalized) return { href: normalized, isFallback: false };
     const q = encodeURIComponent(product?.name || '');
     const name = store.store_name.toLowerCase();
+
+    // Check if URL looks like a real product page (not a placeholder like /dp/Croma-Iron)
+    const isLikelyValid = (url: string) => {
+      try {
+        const u = new URL(url);
+        // Amazon dp URLs must have ASIN-like path (alphanumeric 10 chars)
+        if (u.hostname.includes('amazon') && u.pathname.includes('/dp/')) {
+          const asin = u.pathname.split('/dp/')[1]?.split('/')[0]?.split('?')[0];
+          return asin && /^[A-Z0-9]{10}$/i.test(asin);
+        }
+        // Reject example.com URLs
+        if (u.hostname.includes('example.com')) return false;
+        return true;
+      } catch { return false; }
+    };
+
+    if (normalized && isLikelyValid(normalized)) return { href: normalized, isFallback: false };
+
+    // Fallback to store search
     if (name.includes('amazon')) return { href: `https://www.amazon.in/s?k=${q}`, isFallback: true };
     if (name.includes('flipkart')) return { href: `https://www.flipkart.com/search?q=${q}`, isFallback: true };
+    if (name.includes('myntra')) return { href: `https://www.myntra.com/${q}`, isFallback: true };
+    if (name.includes('croma')) return { href: `https://www.croma.com/searchB?q=${q}`, isFallback: true };
     if (name.includes('tata')) return { href: `https://www.tatacliq.com/search/?searchCategory=all&text=${q}`, isFallback: true };
-    return { href: `https://www.google.com/search?q=${q}`, isFallback: true };
+    return { href: `https://www.google.com/search?q=${q}+buy+online`, isFallback: true };
   };
 
   const analyzeProduct = async () => {
@@ -486,8 +506,15 @@ export default function ProductDetail() {
     }
   };
 
-  const chartData = priceHistory.map((item) => ({
-    date: new Date(item.recorded_at).toLocaleDateString('en-IN'),
+  // Filter price history to last 3 months for the chart
+  const threeMonthsAgo = new Date();
+  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+  const recentPriceHistory = priceHistory.filter(
+    (item) => new Date(item.recorded_at) >= threeMonthsAgo
+  );
+
+  const chartData = (recentPriceHistory.length > 0 ? recentPriceHistory : priceHistory.slice(-30)).map((item) => ({
+    date: new Date(item.recorded_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
     price: item.price,
   }));
 
@@ -513,12 +540,12 @@ export default function ProductDetail() {
 
   const getBuyRecommendation = () => {
     if (!product || !lowestPrice || !highestPrice || priceHistory.length < 5) {
-      return { label: 'Okay', position: 50, color: 'bg-blue-500' };
+      return { label: 'Okay', position: 50, color: 'bg-blue-500', message: 'Not enough data to make a strong recommendation.' };
     }
     
     const priceRange = highestPrice - lowestPrice;
     if (priceRange < 100) {
-      return { label: 'Okay', position: 50, color: 'bg-blue-500' };
+      return { label: 'Okay', position: 50, color: 'bg-blue-500', message: 'Price has been very stable. Safe to buy anytime.' };
     }
     
     const priceRatio = (product.current_price - lowestPrice) / priceRange;
@@ -526,15 +553,25 @@ export default function ProductDetail() {
     
     // Calculate position on slider (inverted: lower price = higher position)
     const sliderPosition = 85 - (percentile * 0.7);
+
+    // Check recent trend (last 7 entries)
+    const recentEntries = priceHistory.slice(-7);
+    const recentAvg = recentEntries.reduce((s, h) => s + h.price, 0) / recentEntries.length;
+    const trendingDown = product.current_price < recentAvg;
+    const priceDiffFromLowest = ((product.current_price - lowestPrice) / lowestPrice * 100).toFixed(1);
     
     if (percentile <= 20) {
-      return { label: 'Yes', position: sliderPosition, color: 'bg-green-500' };
+      return { label: 'Yes', position: sliderPosition, color: 'bg-green-500', 
+        message: `Great deal! Current price is only ${priceDiffFromLowest}% above the all-time low of ₹${lowestPrice.toLocaleString('en-IN')}. ${trendingDown ? 'Price is trending downward.' : 'Price is near its lowest point.'}` };
     } else if (percentile <= 40) {
-      return { label: 'Okay', position: sliderPosition, color: 'bg-blue-500' };
+      return { label: 'Okay', position: sliderPosition, color: 'bg-blue-500',
+        message: `Reasonable price. It's ${priceDiffFromLowest}% above the lowest price of ₹${lowestPrice.toLocaleString('en-IN')}. ${trendingDown ? 'Price trend looks favorable.' : 'Consider tracking for a better deal.'}` };
     } else if (percentile <= 70) {
-      return { label: 'Wait', position: sliderPosition, color: 'bg-yellow-500' };
+      return { label: 'Wait', position: sliderPosition, color: 'bg-yellow-500',
+        message: `Price is ${priceDiffFromLowest}% above the lowest. It has been available for ₹${lowestPrice.toLocaleString('en-IN')} before. ${trendingDown ? 'Price is dropping — wait a bit more.' : 'Consider waiting for a sale or price drop.'}` };
     }
-    return { label: 'Skip', position: sliderPosition, color: 'bg-red-500' };
+    return { label: 'Skip', position: sliderPosition, color: 'bg-red-500',
+      message: `Price is ${priceDiffFromLowest}% above the lowest of ₹${lowestPrice.toLocaleString('en-IN')}. Not a good time to buy. ${trendingDown ? 'Price is starting to drop though.' : 'Wait for a significant price correction.'}` };
   };
 
   const recommendation = getBuyRecommendation();
@@ -670,6 +707,12 @@ export default function ProductDetail() {
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
                     Analyzing reviews...
+                  </div>
+                ) : reviews.length === 0 ? (
+                  <div className="text-sm text-muted-foreground py-4 text-center">
+                    <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p>No customer reviews available yet for this product.</p>
+                    <p className="text-xs mt-1">Be the first to share your experience!</p>
                   </div>
                 ) : (
                   <>
@@ -969,7 +1012,7 @@ export default function ProductDetail() {
             <CardContent className="pt-6">
               <h3 className="text-xl font-bold mb-4">Should you buy at this price?</h3>
               <p className="text-sm text-muted-foreground mb-6">
-                Based on our analysis and observation, there is {(recommendation.position).toFixed(1)}% chance that the price of {product.name} will {recommendation.label === 'Yes' ? 'not decrease significantly' : recommendation.label === 'Skip' ? 'decrease significantly' : 'fluctuate'}. Price of product might fluctuate around 3% from current price.*
+                {recommendation.message}
               </p>
               <div className="relative h-12 mb-2">
                 <div className="absolute inset-0 flex">
