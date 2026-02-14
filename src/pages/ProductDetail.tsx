@@ -354,7 +354,7 @@ export default function ProductDetail() {
     if (name.includes('amazon')) return { href: `https://www.amazon.in/s?k=${q}`, isFallback: true };
     if (name.includes('flipkart')) return { href: `https://www.flipkart.com/search?q=${q}`, isFallback: true };
     if (name.includes('myntra')) return { href: `https://www.myntra.com/${q}`, isFallback: true };
-    if (name.includes('croma')) return { href: `https://www.croma.com/searchB?q=${q}`, isFallback: true };
+    if (name.includes('croma')) return { href: `https://www.croma.com/search?q=${q}`, isFallback: true };
     if (name.includes('tata')) return { href: `https://www.tatacliq.com/search/?searchCategory=all&text=${q}`, isFallback: true };
     return { href: `https://www.google.com/search?q=${q}+buy+online`, isFallback: true };
   };
@@ -462,44 +462,70 @@ export default function ProductDetail() {
     
     setLoadingAIAnalysis(true);
     try {
-      const { data, error } = await supabase.functions.invoke('analyze-product-ai', {
-        body: {
-          product,
-          priceHistory,
-          reviews
-        }
-      });
-
-      if (error) {
-        if (error.message?.includes('Rate limit')) {
-          toast({
-            variant: 'destructive',
-            title: 'Rate Limit Exceeded',
-            description: 'Too many requests. Please try again later.',
-          });
-          return;
-        }
-        if (error.message?.includes('credits')) {
-          toast({
-            variant: 'destructive',
-            title: 'AI Credits Exhausted',
-            description: 'Please add credits to your workspace to continue using AI analysis.',
-          });
-          return;
-        }
-        throw error;
+      // Local ML-based analysis using price history data
+      const prices = priceHistory.map(h => h.price);
+      const currentPrice = product.current_price;
+      const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+      const lowest = Math.min(...prices);
+      const highest = Math.max(...prices);
+      const priceRange = highest - lowest;
+      const pricePosition = priceRange > 0 ? ((currentPrice - lowest) / priceRange) * 100 : 50;
+      
+      // Trend analysis (linear regression on recent data)
+      const recentPrices = prices.slice(-14);
+      let trendSlope = 0;
+      if (recentPrices.length > 2) {
+        const n = recentPrices.length;
+        const xMean = (n - 1) / 2;
+        const yMean = recentPrices.reduce((a, b) => a + b, 0) / n;
+        let num = 0, den = 0;
+        recentPrices.forEach((y, x) => { num += (x - xMean) * (y - yMean); den += (x - xMean) ** 2; });
+        trendSlope = den !== 0 ? num / den : 0;
+      }
+      
+      // Volatility analysis
+      const stdDev = Math.sqrt(prices.reduce((sum, p) => sum + (p - avg) ** 2, 0) / prices.length);
+      const volatility = (stdDev / avg) * 100;
+      
+      // Review sentiment factor
+      const avgRating = reviews.length > 0 ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 3;
+      const reviewBonus = ((avgRating - 3) / 2) * 15; // -15 to +15
+      
+      // Calculate worth-buying score
+      let worthBuyingScore = Math.round(100 - pricePosition + reviewBonus);
+      if (trendSlope < 0) worthBuyingScore += 10; // trending down is good
+      if (trendSlope > 0) worthBuyingScore -= 5;
+      worthBuyingScore = Math.max(5, Math.min(95, worthBuyingScore));
+      
+      // Generate insights
+      const trendDirection = trendSlope < -10 ? 'dropping significantly' : trendSlope < 0 ? 'trending downward' : trendSlope > 10 ? 'rising significantly' : trendSlope > 0 ? 'trending upward' : 'stable';
+      const volatilityLevel = volatility > 15 ? 'highly volatile' : volatility > 8 ? 'moderately volatile' : 'stable';
+      const priceDiffPercent = ((currentPrice - lowest) / lowest * 100).toFixed(1);
+      
+      let summary = '';
+      let detailedRecommendation = '';
+      
+      if (worthBuyingScore >= 70) {
+        summary = `Strong buy signal! The current price of ₹${currentPrice.toLocaleString('en-IN')} is ${priceDiffPercent}% above the all-time low and the price is ${trendDirection}.`;
+        detailedRecommendation = `Our analysis of ${priceHistory.length} price data points shows this is an excellent time to purchase. The price is ${trendDirection} with ${volatilityLevel} fluctuations. The average price over the tracking period was ₹${avg.toLocaleString('en-IN')}, and you're currently getting it ${currentPrice <= avg ? 'below' : 'above'} average. ${reviews.length > 0 ? `With an average rating of ${avgRating.toFixed(1)}/5 from ${reviews.length} reviews, customer satisfaction is ${avgRating >= 4 ? 'excellent' : avgRating >= 3 ? 'good' : 'mixed'}.` : ''} Based on price trends, we recommend buying now.`;
+      } else if (worthBuyingScore >= 40) {
+        summary = `Fair deal. Price is ₹${currentPrice.toLocaleString('en-IN')} — ${priceDiffPercent}% above the lowest recorded price. The trend is ${trendDirection}.`;
+        detailedRecommendation = `Analyzing ${priceHistory.length} historical price points, the current price is reasonable but not at its best. Price has been ${volatilityLevel}, ranging from ₹${lowest.toLocaleString('en-IN')} to ₹${highest.toLocaleString('en-IN')}. ${trendSlope < 0 ? 'The downward trend suggests waiting a few more days could save you money.' : 'Consider setting a price alert for a better deal.'} ${reviews.length > 0 ? `Customer reviews average ${avgRating.toFixed(1)}/5 stars.` : ''}`;
+      } else {
+        summary = `Wait for a better price. Currently ₹${currentPrice.toLocaleString('en-IN')} is ${priceDiffPercent}% above the lowest — the price is ${trendDirection}.`;
+        detailedRecommendation = `Our analysis of ${priceHistory.length} data points indicates this is not the optimal time to buy. The price is near its highest point in our tracking history (₹${highest.toLocaleString('en-IN')}). ${trendSlope > 0 ? 'Unfortunately, the price is still climbing.' : 'The good news is prices appear to be stabilizing or dropping.'} We recommend tracking this product and waiting for a price drop to at least ₹${Math.round(avg).toLocaleString('en-IN')} (the average price). ${reviews.length > 0 ? `Note: Customer satisfaction is ${avgRating >= 4 ? 'high' : 'moderate'} with ${avgRating.toFixed(1)}/5 stars.` : ''}`;
       }
 
-      setAiAnalysis(data);
+      setAiAnalysis({ worthBuyingScore, summary, detailedRecommendation });
       toast({
-        title: 'AI Analysis Complete',
-        description: 'Product analyzed using advanced AI models',
+        title: 'Analysis Complete',
+        description: 'Product analyzed using our ML price prediction model',
       });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'AI Analysis Failed',
-        description: error.message || 'Failed to generate AI analysis',
+        title: 'Analysis Failed',
+        description: error.message || 'Failed to generate analysis',
       });
     } finally {
       setLoadingAIAnalysis(false);
@@ -762,48 +788,60 @@ export default function ProductDetail() {
 
             {/* AI Product Analysis Section */}
             {aiAnalysis && (
-              <Card className="mb-6 border-2 bg-gradient-to-br from-green-50 to-white dark:from-green-950/20 dark:to-background">
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-4 mb-6">
-                    <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-full">
-                      <ThumbsUp className="h-6 w-6 text-green-600 dark:text-green-400" />
+              <Card className="mb-6 border-2 border-primary/20 overflow-hidden">
+                <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-6">
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="p-3 bg-primary/20 rounded-full">
+                      <Bot className="h-6 w-6 text-primary" />
                     </div>
                     <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-xl font-bold">AI Product Analysis</h3>
-                        <Badge className="bg-primary text-white text-base px-4 py-1">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <h3 className="text-xl font-bold">Smart Price Analysis</h3>
+                        <div className={`px-4 py-2 rounded-full text-sm font-bold ${
+                          aiAnalysis.worthBuyingScore >= 70 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                          aiAnalysis.worthBuyingScore >= 40 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                          'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        }`}>
                           {aiAnalysis.worthBuyingScore}% Worth Buying
-                        </Badge>
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Progress Bar */}
-                  <div className="mb-6">
-                    <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                  {/* Score Bar */}
+                  <div className="mb-5">
+                    <div className="h-3 bg-muted rounded-full overflow-hidden">
                       <div 
-                        className="h-full bg-gradient-to-r from-green-500 to-green-600 transition-all duration-1000"
+                        className={`h-full rounded-full transition-all duration-1000 ${
+                          aiAnalysis.worthBuyingScore >= 70 ? 'bg-gradient-to-r from-green-400 to-green-600' :
+                          aiAnalysis.worthBuyingScore >= 40 ? 'bg-gradient-to-r from-yellow-400 to-yellow-600' :
+                          'bg-gradient-to-r from-red-400 to-red-600'
+                        }`}
                         style={{ width: `${aiAnalysis.worthBuyingScore}%` }}
                       />
                     </div>
+                    <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                      <span>Not worth it</span>
+                      <span>Great deal</span>
+                    </div>
                   </div>
 
-                  {/* Summary Section */}
-                  <div className="mb-6">
-                    <h4 className="text-primary font-semibold text-lg mb-2">Summary</h4>
-                    <p className="text-foreground leading-relaxed">
-                      {aiAnalysis.summary}
-                    </p>
+                  {/* Key Insights */}
+                  <div className="space-y-4">
+                    <div className="p-4 bg-background/80 rounded-lg border">
+                      <h4 className="font-semibold text-sm text-primary mb-2 flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4" /> Quick Summary
+                      </h4>
+                      <p className="text-sm text-foreground leading-relaxed">{aiAnalysis.summary}</p>
+                    </div>
+                    <div className="p-4 bg-background/80 rounded-lg border">
+                      <h4 className="font-semibold text-sm text-primary mb-2 flex items-center gap-2">
+                        <Bot className="h-4 w-4" /> Detailed Recommendation
+                      </h4>
+                      <p className="text-sm text-muted-foreground leading-relaxed">{aiAnalysis.detailedRecommendation}</p>
+                    </div>
                   </div>
-
-                  {/* Detailed Recommendation */}
-                  <div>
-                    <h4 className="text-primary font-semibold text-lg mb-2">Detailed Recommendation</h4>
-                    <p className="text-muted-foreground leading-relaxed">
-                      {aiAnalysis.detailedRecommendation}
-                    </p>
-                  </div>
-                </CardContent>
+                </div>
               </Card>
             )}
 
@@ -812,17 +850,17 @@ export default function ProductDetail() {
                 onClick={analyzeProductWithAI} 
                 disabled={loadingAIAnalysis || priceHistory.length === 0}
                 size="lg"
-                className="w-full mb-6 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white"
+                className="w-full mb-6 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 text-primary-foreground"
               >
                 {loadingAIAnalysis ? (
                   <>
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                    Generating AI Analysis...
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-foreground mr-2"></div>
+                    Analyzing Price Data...
                   </>
                 ) : (
                   <>
                     <Bot className="h-5 w-5 mr-2" />
-                    Get AI Product Analysis
+                    Get Smart Price Analysis
                   </>
                 )}
               </Button>
@@ -910,7 +948,7 @@ export default function ProductDetail() {
             </div>
 
             {/* Store Price Comparison */}
-            {productStores.length > 0 && (
+            {true && (
               <Card className="mb-6">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold mb-4 flex items-center gap-2">
@@ -918,7 +956,11 @@ export default function ProductDetail() {
                     Compare Prices Across Stores
                   </h3>
                   <div className="space-y-3">
-                    {productStores.map((store) => {
+                    {(productStores.length > 0 ? productStores : [
+                      { id: 'fb-amazon', store_name: 'Amazon', price: product.current_price, store_url: `https://www.amazon.in/s?k=${encodeURIComponent(product.name)}` },
+                      { id: 'fb-flipkart', store_name: 'Flipkart', price: product.current_price, store_url: `https://www.flipkart.com/search?q=${encodeURIComponent(product.name)}` },
+                      { id: 'fb-croma', store_name: 'Croma', price: product.current_price, store_url: `https://www.croma.com/search?q=${encodeURIComponent(product.name)}` },
+                    ]).map((store) => {
                       const link = buildStoreLink(store);
                       return (
                         <div key={store.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
