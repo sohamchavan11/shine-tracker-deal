@@ -327,35 +327,43 @@ export default function ProductDetail() {
     }
   };
 
-  // Build final link with graceful fallback to store search when direct link is invalid
+  // Build final link – always try to use the direct product page URL
   const buildStoreLink = (store: ProductStore): { href: string; isFallback: boolean } => {
     const normalized = normalizeStoreUrl(store.store_url);
     const q = encodeURIComponent(product?.name || '');
     const name = store.store_name.toLowerCase();
 
-    // Check if URL looks like a real product page (not a placeholder like /dp/Croma-Iron)
-    const isLikelyValid = (url: string) => {
+    // Check if URL looks like a real product page (not a generic search)
+    const isSearchUrl = (url: string) => {
       try {
         const u = new URL(url);
+        const path = u.pathname.toLowerCase();
+        const params = u.search.toLowerCase();
+        // Detect search page patterns
+        if (path.includes('/search') || path === '/s' || params.includes('?k=') || params.includes('?q=')) return true;
         // Amazon dp URLs must have ASIN-like path (alphanumeric 10 chars)
-        if (u.hostname.includes('amazon') && u.pathname.includes('/dp/')) {
-          const asin = u.pathname.split('/dp/')[1]?.split('/')[0]?.split('?')[0];
-          return asin && /^[A-Z0-9]{10}$/i.test(asin);
+        if (u.hostname.includes('amazon') && path.includes('/dp/')) {
+          const asin = path.split('/dp/')[1]?.split('/')[0]?.split('?')[0];
+          if (asin && !/^[A-Z0-9]{10}$/i.test(asin)) return true;
         }
-        // Reject example.com URLs
-        if (u.hostname.includes('example.com')) return false;
-        return true;
-      } catch { return false; }
+        if (u.hostname.includes('example.com')) return true;
+        return false;
+      } catch { return true; }
     };
 
-    if (normalized && isLikelyValid(normalized)) return { href: normalized, isFallback: false };
+    if (normalized && !isSearchUrl(normalized)) return { href: normalized, isFallback: false };
 
-    // Fallback to store search
+    // Even search URLs are acceptable – they still work, just not direct product pages
+    if (normalized) return { href: normalized, isFallback: true };
+
+    // Final fallback: construct a search URL for the store
     if (name.includes('amazon')) return { href: `https://www.amazon.in/s?k=${q}`, isFallback: true };
     if (name.includes('flipkart')) return { href: `https://www.flipkart.com/search?q=${q}`, isFallback: true };
     if (name.includes('myntra')) return { href: `https://www.myntra.com/${q}`, isFallback: true };
     if (name.includes('croma')) return { href: `https://www.croma.com/search?q=${q}`, isFallback: true };
     if (name.includes('tata')) return { href: `https://www.tatacliq.com/search/?searchCategory=all&text=${q}`, isFallback: true };
+    if (name.includes('reliance')) return { href: `https://www.reliancedigital.in/search?q=${q}`, isFallback: true };
+    if (name.includes('vijay')) return { href: `https://www.vijaysales.com/search/${q}`, isFallback: true };
     return { href: `https://www.google.com/search?q=${q}+buy+online`, isFallback: true };
   };
 
